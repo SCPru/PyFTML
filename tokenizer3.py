@@ -1,101 +1,162 @@
 from typing import List
-from enum import Enum, unique
+from enum import Enum, auto, unique
+from dataclasses import dataclass
 import re
 
 
 WHITESPACE_CHARS = r'\s'
 
 @unique
-# Priority-ordered tokens list
 class TokenType(Enum):
-    Null = -1
+    STRING = auto()
+    WHITESPACE = auto()
 
-    String = 0
-    QuotedString = 1
-    Whitespace = 2
+    OPEN_COMMENT = auto()
+    CLOSE_COMMENT = auto()
 
-    OpenComment = '[!--'
-    CloseComment = '--]'
+    OPEN_TRIPLE_BRACKET = auto()
+    CLOSE_TRIPLE_BRACKET = auto()
 
-    OpenTripleBracket = '[[['
-    CloseTripleBracket = ']]]'
-    OpenDoubleBracket = '[['
-    CloseDoubleBracket = ']]'
-    OpenSingleBracket = '['
-    CloseSingleBracket = ']'
+    OPEN_DOUBLE_BRACKET = auto()
+    CLOSE_DOUBLE_BRACKET = auto()
 
-    Quote = '"'
+    OPEN_SINGLE_BRACKET = auto()
+    CLOSE_SINGLE_BRACKET = auto()
 
-    Blockquote = '>'
+    QUOTE = auto()
+    BLOCKQUOTE = auto()
 
-    DoubleAt = '@@'
-    DoubleHash = '##'
+    DOUBLE_AT = auto()
+    DOUBLE_HASH = auto()
+    DOUBLE_PIPE = auto()
 
-    DoublePipe = '||'
+    DOUBLE_SUP = auto()
+    DOUBLE_SUB = auto()
 
-    DoubleSup = '^^'
-    DoubleSub = ',,'
+    OPEN_HTML_LITERAL = auto()
+    CLOSE_HTML_LITERAL = auto()
 
-    OpenHTMLLiteral = '@<'
-    CloseHTMLLiteral = '>@'
+    OPEN_INLINE_CODE = auto()
+    CLOSE_INLINE_CODE = auto()
 
-    OpenInlineCode = '{{'
-    CloseInlineCode = '}}'
+    HR_BEGINNING = auto()
+    CLEAR_FLOAT_BEGINNING = auto()
 
-    HrBeginning = '----'
-    ClearFloatBeginning = '~~~~'
+    DOUBLE_DASH = auto()
+    DOUBLE_ASTERISK = auto()
+    DOUBLE_SLASH = auto()
+    DOUBLE_UNDERLINE = auto()
 
-    DoubleDash = '--'
-    DoubleAsterisk = '**'
-    DoubleSlash = '//'
-    DoubleUnderline = '__'
+    EQUALS = auto()
+    PIPE = auto()
+    ASTERISK = auto()
+    HASH = auto()
+    PLUS = auto()
 
-    Equals = '='
-    Pipe = '|'
-    Asterisk = '*'
-    Hash = '#'
-    Plus = '+'
-    Newline = '\n'
-    Slash = '/'
-    Backslash = '\\'
-    Tilde = '~'
-    Underline = '_'
+    NEWLINE = auto()
+
+    SLASH = auto()
+    BACKSLASH = auto()
+    TILDE = auto()
+    UNDERLINE = auto()
 
 
+TOKEN_LITERALS = {
+    '[!--': TokenType.OPEN_COMMENT,
+    '--]': TokenType.CLOSE_COMMENT,
+
+    '[[[': TokenType.OPEN_TRIPLE_BRACKET,
+    ']]]': TokenType.CLOSE_TRIPLE_BRACKET,
+
+    '[[': TokenType.OPEN_DOUBLE_BRACKET,
+    ']]': TokenType.CLOSE_DOUBLE_BRACKET,
+
+    '[': TokenType.OPEN_SINGLE_BRACKET,
+    ']': TokenType.CLOSE_SINGLE_BRACKET,
+
+    '"': TokenType.QUOTE,
+    '>': TokenType.BLOCKQUOTE,
+
+    '@@': TokenType.DOUBLE_AT,
+    '##': TokenType.DOUBLE_HASH,
+    '||': TokenType.DOUBLE_PIPE,
+
+    '^^': TokenType.DOUBLE_SUP,
+    ',,': TokenType.DOUBLE_SUB,
+
+    '@<': TokenType.OPEN_HTML_LITERAL,
+    '>@': TokenType.CLOSE_HTML_LITERAL,
+
+    '{{': TokenType.OPEN_INLINE_CODE,
+    '}}': TokenType.CLOSE_INLINE_CODE,
+
+    '----': TokenType.HR_BEGINNING,
+    '~~~~': TokenType.CLEAR_FLOAT_BEGINNING,
+
+    '--': TokenType.DOUBLE_DASH,
+    '**': TokenType.DOUBLE_ASTERISK,
+    '//': TokenType.DOUBLE_SLASH,
+    '__': TokenType.DOUBLE_UNDERLINE,
+
+    '=': TokenType.EQUALS,
+    '|': TokenType.PIPE,
+    '*': TokenType.ASTERISK,
+    '#': TokenType.HASH,
+    '+': TokenType.PLUS,
+
+    '\n': TokenType.NEWLINE,
+
+    '/': TokenType.SLASH,
+    '\\': TokenType.BACKSLASH,
+    '~': TokenType.TILDE,
+    '_': TokenType.UNDERLINE,
+}
+
+
+_LITERAL_PATTERN = '|'.join(
+    re.escape(literal)
+    for literal in sorted(
+        TOKEN_LITERALS,
+        key=len,
+        reverse=True,
+    )
+)
+
+TOKEN_REGEX = re.compile(
+    rf'(?:{_LITERAL_PATTERN})|[^\S\n]+'
+)
+
+@dataclass(slots=True)
+class TokenStream:
+    source: str
+    tokens: list[Token]
+
+    def raw(self, token: Token) -> str:
+        return self.source[token.start:token.end]
+
+
+@dataclass(slots=True, frozen=True)
 class Token:
-    def __init__(self, type: TokenType, start: int, end: int, source: str):
-        self.type = type
-        self.start = start
-        self.end = end
-        self.source = source
-
-    @property
-    def raw(self):
-        return self.source[self.start:self.end]
-
-    def __repr__(self):
-        return '<Token type=%s, raw=%s>' % (self.type.name, repr(self.raw))
+    token_type: TokenType
+    start: int
+    end: int
 
 
 class Tokenizer:
-    def __init__(self):
-        self.rules = {rule.value: rule for rule in TokenType if not isinstance(rule.value, int)}
-        self.token_regex = re.compile('|'.join(re.escape(rule.value) for rule in TokenType if not isinstance(rule.value, int)) + f'|[{WHITESPACE_CHARS}]+')
-
-    def tokenize(self, source: str) -> List[Token]:
+    def tokenize(self, source: str) -> TokenStream:
         tokens: List[Token] = []
         last_end = 0
 
-        for match in self.token_regex.finditer(source):
+        for match in TOKEN_REGEX.finditer(source):
             start, end = match.span()
             if start > last_end:
-                tokens.append(Token(TokenType.String, last_end, start, source))
+                tokens.append(Token(TokenType.STRING, last_end, start))
             group = match.group()
-            token_type = self.rules.get(group, TokenType.Whitespace)
-            tokens.append(Token(token_type, start, end, source))
+            token_type = TOKEN_LITERALS.get(group, TokenType.WHITESPACE)
+            tokens.append(Token(token_type, start, end))
             last_end = end
 
         if last_end < len(source):
-            tokens.append(Token(TokenType.String, last_end, len(source), source))
+            tokens.append(Token(TokenType.STRING, last_end, len(source)))
 
-        return tokens
+        return TokenStream(source, tokens)
